@@ -1,0 +1,13 @@
+diff --git a/apps/Makefile b/apps/Makefile
+index d7e2c78..db29e77 100644
+--- a/apps/Makefile
++++ b/apps/Makefile
+@@ -52,7 +52,7 @@ $(APPS): % : bin/% $(APPS_DIR)/Makefile $(shell find common -type f)
+ define app_compile_template
+ bin/$1: $(addsuffix .o, $(shell find $(1) -name "*.c" -o -name "*.S")) $(RUNTIME_LLVM) linker_script
+ 	mkdir -p bin/
+-	$$(RISCV_CC) -Iinclude $(RISCV_CCFLAGS) -o $$@ $(addsuffix .o, $(shell find $(1) -name "*.c" -o -name "*.S")) $(RUNTIME_LLVM) $$(RISCV_LDFLAGS) -T$$(CURDIR)/common/link.ld
++	$$(RISCV_CC) -Iinclude $(RISCV_CCFLAGS) -o $$@ $(addsuffix .o, $(shell find $(1) -name "*.c" -o -name "*.S")) $(RUNTIME_LLVM) $$(RISCV_LDFLAGS) -T$$(CURDIR)/common/link.ld -L$$(CURDIR)/../install/riscv-llvm/riscv64-unknown-elf/lib
+ 	$$(RISCV_OBJDUMP) $$(RISCV_OBJDUMP_FLAGS) -D $$@ > $$@.dump
+ 	$$(RISCV_STRIP) $$@ -S --strip-unneeded
+ endef
