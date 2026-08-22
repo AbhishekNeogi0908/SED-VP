@@ -64,6 +64,14 @@ sources:
     - hardware/src/lane/vector_fus_stage.sv
     # Level 4
     - hardware/src/lane/lane.sv
+
+    # -----------------------------------
+    # ADD YOUR SED-VP FILES RIGHT HERE:
+    # -----------------------------------
+    - hardware/src/sedvp_cidx_compressor.sv
+    - hardware/src/sedvp_aeb.sv
+    - hardware/src/sedvp_synapse_expander.sv
+
     # Level 5
     - hardware/src/ara.sv
     # Level 6

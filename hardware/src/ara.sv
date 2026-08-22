@@ -272,6 +272,13 @@ module ara import ara_pkg::*; #(
   elen_t     result_scalar;
   logic      result_scalar_valid;
 
+  // -----------------------------------------
+  // SED-VP INTERCONNECT WIRES
+  // -----------------------------------------
+  logic        sedvp_seq_valid;
+  logic [4:0]  sedvp_cidx_vs2;
+  logic [4:0]  sedvp_cidx_rs1;
+
   ara_sequencer #(
     .NrLanes    (NrLanes   ),
     .VLEN       (VLEN      ),
@@ -309,7 +316,14 @@ module ara import ara_pkg::*; #(
     .addrgen_exception_i   (addrgen_exception        ),
     .addrgen_exception_vstart_i(addrgen_exception_vstart),
     .addrgen_fof_exception_i(addrgen_fof_exception),
-    .lsu_current_burst_exception_i(lsu_current_burst_exception)
+    .lsu_current_burst_exception_i(lsu_current_burst_exception),
+
+    // -------------------------
+      // SED-VP Custom Ports
+      // -------------------------
+      .sedvp_cidx_valid_o           (sedvp_seq_valid), // 
+      .sedvp_cidx_vs2_o             (sedvp_cidx_vs2), //
+      .sedvp_cidx_rs1_o             (sedvp_cidx_rs1) 
   );
 
   // Scalar move support
@@ -681,4 +695,122 @@ module ara import ara_pkg::*; #(
   if (VLEN != 2**$clog2(VLEN))
     $error("[ara] The vector length must be a power of two.");
 
+  // =========================================================================
+  // SED-VP EVENT PATH HARDWARE INTEGRATION
+  // =========================================================================
+  
+  logic          sedvp_vrf_req, sedvp_vrf_valid;
+  logic [4:0]    sedvp_vrf_vreg;
+  logic [VLEN-1:0] sedvp_vrf_mask; // Dynamically uses Ara's VLEN parameter
+  
+  logic          aeb_valid, aeb_ready;
+  logic [63:0]   aeb_data;
+
+  // -----------------------------------------
+  // Synapse Expander Wires
+  // -----------------------------------------
+  logic          aeb_pop_valid, aeb_pop_ready;
+  logic [63:0]   aeb_pop_data;
+
+  logic          exp_mem_req, exp_mem_rvalid;
+  logic [63:0]   exp_mem_addr;
+  logic [31:0]   exp_mem_rdata;
+
+  logic          qacc_valid;
+  logic [31:0]   qacc_dst_id;
+  logic [15:0]   qacc_weight;
+
+  // 1. The Active Event Compressor (cidX)
+  sedvp_cidx_compressor #(
+      .VLEN(VLEN)
+  ) i_sedvp_compressor (
+      .clk_i           (clk_i),
+      .rst_ni          (rst_ni),
+      .valid_i         (sedvp_seq_valid),
+      .vs2_i           (sedvp_cidx_vs2),
+      .rs1_i           (sedvp_cidx_rs1),
+      
+      .vrf_req_o       (sedvp_vrf_req),
+      .vrf_vreg_o      (sedvp_vrf_vreg),
+      .vrf_mask_i      (sedvp_vrf_mask),
+      .vrf_valid_i     (sedvp_vrf_valid),
+      
+      .aeb_valid_o     (aeb_valid),
+      .aeb_data_o      (aeb_data),
+      .aeb_ready_i     (aeb_ready)
+  );
+
+  // 2. The Active Event Buffer (AEB)
+  sedvp_aeb #(
+      .Depth(128)
+  ) i_sedvp_aeb (
+      .clk_i           (clk_i),
+      .rst_ni          (rst_ni),
+      .push_valid_i    (aeb_valid),
+      .push_data_i     (aeb_data),
+      .push_ready_o    (aeb_ready),
+      .pop_valid_o     (aeb_pop_valid), 
+      .pop_data_o      (aeb_pop_data),
+      .pop_ready_i     (aeb_pop_ready)
+  );
+
+  // 3. DUMMY VRF RESPONSE (For pipeline testing)
+  always_comb begin
+      sedvp_vrf_valid = sedvp_vrf_req;
+      sedvp_vrf_mask  = '0;
+      
+      // Simulating a sparse network where Neurons 4 and 12 fired!
+      if (sedvp_vrf_req) begin
+          sedvp_vrf_mask[4]  = 1'b1; 
+          sedvp_vrf_mask[12] = 1'b1; 
+      end
+  end
+  // =========================================================================
+  // SED-VP SYNAPSE EXPANDER INTEGRATION
+  // =========================================================================
+  // 1. Instantiate Synapse Expander
+  sedvp_synapse_expander i_sedvp_expander (
+      .clk_i           (clk_i),
+      .rst_ni          (rst_ni),
+      
+      // Fixed CSR Base Addresses in DRAM (Matches C Program Pointers)
+      .rowptr_base_i   (64'h8000_2000), 
+      .colidx_base_i   (64'h8000_3000),
+      .weight_base_i   (64'h8000_4000),
+
+      // Connect directly to AEB Pop Interface
+      .aeb_pop_ready_o (exp_aeb_ready),
+      .aeb_pop_valid_i (exp_aeb_valid),
+      .aeb_pop_data_i  (exp_aeb_data),
+
+      // Memory Read Interface
+      .mem_req_o       (exp_mem_req),
+      .mem_addr_o      (exp_mem_addr),
+      .mem_rdata_i     (exp_mem_rdata),
+      .mem_rvalid_i    (exp_mem_rvalid),
+
+      // Output to QACC (Ready always 1 for now)
+      .qacc_valid_o    (qacc_valid),
+      .qacc_dst_id_o   (qacc_dst_id),
+      .qacc_weight_o   (qacc_weight),
+      .qacc_ready_i    (1'b1) // Always ready for now
+  );
+
+
+  // 3. Mock CSR Memory Responder (Simulates DRAM Reads)
+  always_comb begin
+    exp_mem_rvalid = exp_mem_req;
+    exp_mem_rdata  = '0;
+
+    if (exp_mem_req) begin
+      // If reading rowptr for Presynaptic Neuron 4 -> Returns index 0 to 3 (3 synapses)
+      if (exp_mem_addr == 64'h8000_2000 + (4 * 4))      exp_mem_rdata = 32'd0; // rowptr[4] = 0
+      else if (exp_mem_addr == 64'h8000_2000 + (5 * 4)) exp_mem_rdata = 32'd3; // rowptr[5] = 3
+
+      // If reading colidx entries for Neuron 4's fan-out (k=0, 1, 2):
+      else if (exp_mem_addr == 64'h8000_3000 + (0 * 4)) exp_mem_rdata = 32'd101; // Synapse 0 -> Dst 101
+      else if (exp_mem_addr == 64'h8000_3000 + (1 * 4)) exp_mem_rdata = 32'd205; // Synapse 1 -> Dst 205
+      else if (exp_mem_addr == 64'h8000_3000 + (2 * 4)) exp_mem_rdata = 32'd309; // Synapse 2 -> Dst 309
+    end
+  end
 endmodule : ara

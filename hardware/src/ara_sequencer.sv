@@ -51,7 +51,15 @@ module ara_sequencer import ara_pkg::*; import rvv_pkg::*; import cf_math_pkg::i
     input  vlen_t                           addrgen_exception_vstart_i,
     input  logic                            addrgen_fof_exception_i,
     // Interface with the store unit
-    input  logic                            lsu_current_burst_exception_i
+    input  logic                            lsu_current_burst_exception_i,
+
+    // -------------------------
+    // SED-VP Custom Ports
+    // -------------------------
+    output logic                            sedvp_cidx_valid_o,
+    output logic [4:0]                      sedvp_cidx_vs2_o,
+    output logic [4:0]                      sedvp_cidx_rs1_o
+
   );
 
   `include "common_cells/registers.svh"
@@ -360,6 +368,15 @@ module ara_sequencer import ara_pkg::*; import rvv_pkg::*; import cf_math_pkg::i
     write_list_d          = write_list_q;
     global_hazard_table_d = global_hazard_table_o;
 
+
+    // -------------------------
+    // SED-VP Default Outputs
+    // -------------------------
+    sedvp_cidx_valid_o = 1'b0;
+    sedvp_cidx_vs2_o   = '0;
+    sedvp_cidx_rs1_o   = '0;
+
+
     // Maintain request
     pe_req_d       = '0;
     pe_req_valid_d = 1'b0;
@@ -403,7 +420,33 @@ module ara_sequencer import ara_pkg::*; import rvv_pkg::*; import cf_math_pkg::i
         end else if (ara_req_valid_i) begin
           // The target PE is ready, and we can handle another running vector instruction
           // Let instructions with priority pass be issued
-          if (&vinsn_queue_issue && !stall_lanes_desynch && !vinsn_running_full) begin
+
+          // =========================================================
+        // SED-VP EVENT PATH INTERCEPTION
+        // =========================================================
+        if (ara_req_i.op == VCOMPRESS) begin
+            // 1. Print success directly to the simulation console!
+            $display("\n\033[1;32m[SED-VP HARDWARE] SUCCESS:\033[0m sedvp.cidx intercepted at cycle %0t! Source Reg: v%0d\n", $time, ara_req_i.vs2);
+            
+            // 2. Wake up the Active Event Compressor
+            sedvp_cidx_valid_o = 1'b1;
+            
+            // 3. Route the register pointers
+            // vs2 contains the vector spike mask (the 1s and 0s)
+            sedvp_cidx_vs2_o   = ara_req_i.vs2; 
+            
+            // rs1 contains the scalar base ID offset
+            sedvp_cidx_rs1_o   = ara_req_i.vs1; 
+            
+            // 4. Tell the scalar core we accepted the instruction
+            ara_req_ready_o = 1'b1; 
+        end
+        // =========================================================
+        // Standard RVV Issue Logic 
+        // =========================================================
+        // MAKE SURE THIS IS CHANGED TO 'else if' SO STANDARD LANES DON'T EXECUTE IT
+        
+        else if (&vinsn_queue_issue && !stall_lanes_desynch && !vinsn_running_full) begin
             ///////////////
             //  Hazards  //
             ///////////////
