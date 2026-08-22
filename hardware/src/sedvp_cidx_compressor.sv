@@ -63,7 +63,7 @@ module sedvp_cidx_compressor import ara_pkg::*; #(
       end
 
       WAIT_VRF: begin
-        // vrf_req_o = 1'b1; // Keep requesting until we get valid data
+        vrf_req_o = 1'b1; // Keep requesting until we get valid data
         if (vrf_valid_i) begin
           mask_d  = vrf_mask_i;     // Latch the mask data
           state_d = COMPRESS;
@@ -116,7 +116,7 @@ module sedvp_cidx_compressor import ara_pkg::*; #(
       end
 
       // Trace each active event ID pushed into the AEB
-      if (state_q == COMPRESS && aeb_valid_o && aeb_ready_i) begin
+      if (state_q == COMPRESS && mask_q[0] && aeb_valid_o && aeb_ready_i) begin
          $display("[SED-VP COMPRESSOR] TRACE @ Cycle %0t: Found Active Bit! Pushed Neuron ID %0d to AEB", 
                   $time, current_idx_q);
       end

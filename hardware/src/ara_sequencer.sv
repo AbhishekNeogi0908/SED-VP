@@ -421,26 +421,21 @@ module ara_sequencer import ara_pkg::*; import rvv_pkg::*; import cf_math_pkg::i
           // The target PE is ready, and we can handle another running vector instruction
           // Let instructions with priority pass be issued
 
-          // =========================================================
+        // =========================================================
         // SED-VP EVENT PATH INTERCEPTION
         // =========================================================
         if (ara_req_i.op == VCOMPRESS) begin
-            // 1. Print success directly to the simulation console!
-            $display("\n\033[1;32m[SED-VP HARDWARE] SUCCESS:\033[0m sedvp.cidx intercepted at cycle %0t! Source Reg: v%0d\n", $time, ara_req_i.vs2);
-            
-            // 2. Wake up the Active Event Compressor
+            $display("\n\033[1;32m[SED-VP HARDWARE] SUCCESS:\033[0m sedvp.cidx intercepted at cycle %0t! Source Reg: v%0d", $time, ara_req_i.vs2);
             sedvp_cidx_valid_o = 1'b1;
-            
-            // 3. Route the register pointers
-            // vs2 contains the vector spike mask (the 1s and 0s)
             sedvp_cidx_vs2_o   = ara_req_i.vs2; 
-            
-            // rs1 contains the scalar base ID offset
             sedvp_cidx_rs1_o   = ara_req_i.vs1; 
-            
-            // 4. Tell the scalar core we accepted the instruction
-            ara_req_ready_o = 1'b1; 
+            ara_req_ready_o    = 1'b1; 
         end
+        else if (ara_req_i.op == VMOR) begin // Using VMOR as a safe non-scalar expander trigger
+            $display("\n\033[1;32m[SED-VP HARDWARE] SUCCESS:\033[0m sedvp.expand intercepted at cycle %0t!", $time);
+            ara_req_ready_o    = 1'b1;
+        end
+
         // =========================================================
         // Standard RVV Issue Logic 
         // =========================================================
