@@ -3,44 +3,38 @@
 
 int main() {
   printf("\n==========================================\n");
-  printf("=  SED-VP DYNAMIC SNN EXECUTION TEST     =\n");
+  printf("=  SED-VP DYNAMIC PACKED MASK TEST       =\n");
   printf("==========================================\n\n");
 
-  // 1. Define dynamic arrays in main memory
-  // Creating a 32-element mask (1 = active, 0 = idle). 
-  // Setting neurons 4 and 12 to 1 to match our expected hardware trace.
-  uint32_t spike_mask[32] = {0};
-  spike_mask[4] = 1;
-  spike_mask[12] = 1;
-
-  // 2. Define CSR arrays in memory to prepare for removing the dummy RAM
+  // 1. Create a tightly packed 32-bit mask. 
+  // Bit 4 and Bit 12 set to 1. Hex: 0x00001010
+  uint32_t packed_spike_mask = (1 << 4) | (1 << 12);
+  
+  // 2. CSR arrays (Mock data for expansion)
   uint32_t rowptr[32] = {0};
   rowptr[4] = 0;
   rowptr[5] = 3;
   uint32_t colidx[3] = {101, 205, 309};
   uint32_t weights[3] = {1, 1, 1};
 
-  printf("1. Loading dynamic spike mask from memory into Vector Register v1...\n");
+  printf("1. Mask created: 0x%08x\n", packed_spike_mask);
+  printf("2. Loading packed mask into Vector Register v1...\n");
   
-  // Use standard RVV instructions to load the mask array into v1
+  // Load the packed 32-bit integer into v1
   asm volatile (
       "vsetvli zero, %0, e32, m1, ta, ma \n"
       "vle32.v v1, (%1) \n"
-      :: "r"(32), "r"(spike_mask)
+      :: "r"(1), "r"(&packed_spike_mask)
   );
 
-  printf("2. Dispatching custom sedvp.cidx instruction...\n");
-  
-  // The hardware will soon read v1 instead of the dummy wire
+  printf("3. Dispatching custom sedvp.cidx instruction...\n");
   asm volatile ("vcompress.vm v2, v3, v1");
 
-  printf("3. Waiting for hardware pipeline to process dynamic data...\n");
-  
+  printf("4. Waiting for SED-VP hardware pipeline...\n");
   for (volatile int i = 0; i < 1500; i++) {
       asm volatile ("nop");
   }
 
-  printf("\n4. Test Complete! Check RTL logs for active IDs.\n\n");
-
+  printf("\n5. Software complete! Check RTL logs.\n\n");
   return 0;
 }

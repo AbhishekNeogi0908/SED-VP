@@ -755,16 +755,57 @@ module ara import ara_pkg::*; #(
   );
 
   // 3. DUMMY VRF RESPONSE (For pipeline testing)
-  always_comb begin
-      sedvp_vrf_valid = sedvp_vrf_req;
-      sedvp_vrf_mask  = '0;
+  // always_comb begin
+  //     sedvp_vrf_valid = sedvp_vrf_req;
+  //     sedvp_vrf_mask  = '0;
       
-      // Simulating a sparse network where Neurons 4 and 12 fired!
-      if (sedvp_vrf_req) begin
-          sedvp_vrf_mask[4]  = 1'b1; 
-          sedvp_vrf_mask[12] = 1'b1; 
-      end
+  //     // Simulating a sparse network where Neurons 4 and 12 fired!
+  //     if (sedvp_vrf_req) begin
+  //         sedvp_vrf_mask[4]  = 1'b1; 
+  //         sedvp_vrf_mask[12] = 1'b1; 
+  //     end
+  // end
+
+// =========================================================================
+  // SED-VP TO REAL VRF INTEGRATION (SNOOPING MASKU OPERANDS WITH TRACING)
+  // =========================================================================
+  
+  logic [VLEN-1:0] aggregated_vrf_data;
+  
+  always_comb begin
+    aggregated_vrf_data = '0;
+    for (int l = 0; l < NrLanes; l++) begin
+      // Index [1] holds the vector data pushed from the lanes[cite: 3]
+      aggregated_vrf_data[l * $bits(elen_t) +: $bits(elen_t)] = masku_operand[l][1];
+    end
   end
+
+  always_comb begin
+    sedvp_vrf_valid = 1'b0;
+    sedvp_vrf_mask  = '0;
+
+    // When Lane 0 pushes valid data for operand [1], trace and snoop it
+    if (masku_operand_valid[0][1]) begin
+      sedvp_vrf_valid = 1'b1;
+      sedvp_vrf_mask  = aggregated_vrf_data; 
+    end
+  end
+
+  // Sequential trace for data transition visualization
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      // reset state if needed
+    end else begin
+      if (masku_operand_valid[0][1] && sedvp_vrf_req) begin
+        $display("[ARA SNOOP TRACE] CYCLE %0t: Intercepted VRF Push! Raw Data: Lane0=%h, Lane1=%h, Lane2=%h, Lane3=%h", 
+                 $time, masku_operand[0][1], masku_operand[1][1], masku_operand[2][1], masku_operand[3][1]);
+        $display("[ARA SNOOP TRACE] Aggregated Full VLEN Data Payload: %h", aggregated_vrf_data);
+      end
+    end
+  end
+
+
+
   // =========================================================================
   // SED-VP SYNAPSE EXPANDER INTEGRATION
   // =========================================================================
